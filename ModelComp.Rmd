@@ -1,0 +1,122 @@
+---
+title: "Exercise6"
+author: "Nigel Rimando"
+date: "4/10/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(caret)
+library(ggplot2)
+library(e1071)
+library(magrittr)
+options(scipen = 999)
+```
+
+a) Divide your dataset into training and test sets. Call them “train” and “test.” Train should contain 750 observations; test should contain 250 observations.
+
+```{r}
+set.seed(10)
+train_test_split <- sample(1:1000, 750)
+data("GermanCredit")
+train.dt <- GermanCredit[train_test_split, ]
+test.dt <- GermanCredit[-train_test_split, ]
+```
+
+b) Create ten folds in your training set, each containing 75 observations. Call them fold1, fold2, fold3, ... , fold10. For simplicity, do the following:
+
+```{r}
+set.seed(10)
+cv_folds_permute <- sample(1:750, 750)
+```
+
+# Logistic Regression 
+
+Instructions: Fit a logistic regression model and perform model building/variable selection. (Note the variables that you have selected.)
+
+For this exericse, we will undergo the following prodedure:
+
+1. Take a certain fold from the training set
+2. Fit a full model for Logistic Regression
+3. Take all indepedent variables that are significant 
+4. Fit a model using only the significant variables
+5. Assess the accuracy for the fold
+6. Repeat across all 10 folds.
+
+```{r cache = TRUE}
+logistic_folds.dt <- map_df(
+  seq(1, 10, 1),
+  function(x) {
+    index <- x + (x-1)*74
+    data <- train.dt[-cv_folds_permute[index:(index+74)],]
+    model <- glm(formula = Class ~ ., data = data, family = 'binomial')
+    summary <- summary(model)
+    sig_vars <- rownames(summary$coefficients)[which(summary$coefficients[,4] <= 0.05)] 
+    sig_vars <- sig_vars[sig_vars != '(Intercept)']
+    formula <- paste0("Class ~ ",paste(sig_vars, collapse = ' + '))
+    model_trunc <- glm(formula = formula(formula), data = data, family = 'binomial')
+    accuracy <- sum(diag(table(
+      predict(model_trunc, data = train.dt[cv_folds_permute[index:(index+74)],], type = 'response') > 0.5, data$Class)
+      ))/nrow(data)
+    data.frame(
+      excluded_fold = x,
+      accuracy = accuracy,
+      significant_variables = paste(sig_vars, collapse = ', ')
+    )
+  }
+)
+
+logistic_folds.dt %>% select(-significant_variables)
+```
+
+# Support Vector Machine
+
+Instructions: Build a support vector machine using the radial kernel. Tune by setting gamma = c(0.1, 0.5, 1, 2) – let use leave cost at its default value.
+
+We repeat the same procedure using Support Vector Machines, except without steps 3 and 4 from the logistic regression exercise.
+
+```{r cache = TRUE, warning = FALSE}
+svm_folds.dt <- map_df(
+  seq(1, 10, 1),
+  function(x) {
+    index <- x + (x-1)*74
+    data <- train.dt[-cv_folds_permute[index:(index+74)],]
+    svm.mdl <- tune(svm, 
+       Class ~ ., 
+       data = data, 
+       kernel = "radial", 
+       ranges = list(gamma = c(0.1, 0.5, 1, 2))
+    )
+    accuracy <- sum(diag(table(
+      predict(svm.mdl$best.model, data = train.dt[cv_folds_permute[index:(index+74)],], type = 'response'), data$Class)
+      ))/nrow(data)
+    data.frame(
+      excluded_fold = x,
+      gamma = svm.mdl$best.model$gamma,
+      accuracy = accuracy
+    )
+  }
+)
+svm_folds.dt
+```
+
+# Comparison
+
+```{r}
+comparison.dt <- logistic_folds.dt %>% select(-significant_variables) %>% rename(logistic_accuracy = accuracy) %>% 
+  full_join(svm_folds.dt %>% select(-gamma) %>% rename(svm_accuracy = accuracy), by = c('excluded_fold'))
+comparison.dt
+```
+
+****** DUNNO WHY ACCURACY IS PERFECT FOR SVM *******
+
+# Paired T-tests
+
+Instructions: Perform a paired t-test to test if there is a difference between the proportion of correctly- classified observations for the two methods. In the t.test function in R, do not forget to set `paired=TRUE`. 
+
+```{r}
+t.test(comparison.dt$logistic_accuracy, comparison.dt$svm_accuracy, paired = TRUE)
+```
+

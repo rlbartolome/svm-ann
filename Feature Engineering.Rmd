@@ -1,0 +1,130 @@
+---
+title: "Stat 218 - Model Comparison Exercise"
+author: "Rommel Bartolome"
+date: "April 12, 2019"
+output: pdf_document
+---
+
+# a) Divide your dataset into training and test sets. Call them "train" and "test." Train should contain 750 observations; test should contain 250 observations.
+
+
+We divide the dataset to train and test set:
+
+```{r}
+library(caret)
+library(tidyverse)
+library(e1071)
+set.seed(1)
+data(GermanCredit)
+
+sample <- sample.int(n = nrow(GermanCredit), 
+                     size = floor(.75*nrow(GermanCredit)),
+                     replace = F)
+train <- GermanCredit[sample, ]
+test  <- GermanCredit[-sample, ]
+```
+
+# b) Create ten folds in your training set, each containing 75 observations. Call them fold1, fold2, fold3, . , fold10.
+
+We create the indexes of the ten folds in the training dataset. We will use these values later.
+
+```{r}
+folds <- sample(1:750, 750)
+```
+
+#c) Perform the fitting and assessment steps ten times. At step i, train your model using everything but foldi; use foldi to assess performance. For example, for the first iteration of this procedure, train the models using a dataset that excludes observations in fold1. Assess the models using the observations in fold1.
+
+
+## Fitting
+
+### i.) Fit a logistic regression model and perform model building/variable selection. (Note the variables that you have selected.)
+
+We then fit a logistic regression model and perform model building/variable selection. We also show that significant variables.
+
+```{r}
+logistic <- c()
+for.ttest <- c()
+for (x in seq(1, 10, 1)){
+    i <- x + (x-1)*74
+    dat <- train[-folds[i:(i+74)], ]
+    model <- glm(formula = Class ~ ., data = dat, family = 'binomial')
+    summary <- summary(model)
+    sig_vars <- rownames(summary$coefficients)[which(summary$coefficients[,4]<= 0.05)]
+    sig_vars <- sig_vars[sig_vars != '(Intercept)']
+    formula <- paste0("Class ~ ", paste(sig_vars, collapse = ' + '))
+    model_trunc <- glm(formula = formula(formula), 
+                       data = train[folds[i:(i+74)], ], family = 'binomial')
+    log_pred <- predict(model_trunc, data = train[folds[i:(i+74)], ], type = 'response')
+      
+    accuracy <- sum(diag(table(log_pred > 0.5, train[folds[i:(i+74)], ]$Class))
+                    /nrow(train[folds[i:(i+74)], ]))
+    
+    logistic <- c(logistic, c(x, accuracy, formula))
+    for.ttest <- c(for.ttest, c(log_pred > 0.5))
+}
+
+logistic_array <- array(unlist(logistic), dim=c(3, 10)) %>% aperm() %>% data.frame()
+names(logistic_array) <- c("fold", "accuracy", "formula")
+logistic_array[,c(1,2)]
+
+```
+
+We also show the significant variables:
+
+```{r}
+logistic_array[,c(1,3)]
+```
+
+
+### ii.) Build a support vector machine using the radial kernel. Tune by setting gamma = c(0.1, 0.5, 1, 2) - let use leave cost at its default value. (Note the final settings after performing tuning. You may use a subset of the predictors, but make sure to justify your choice.)
+
+We also build a support vector machine using the radial kernel. We tune by setting gamma = c(0.1, 0.5, 1, 2):
+
+```{r warning=FALSE}
+svm <- c()
+for.ttestsvm <- c()
+for (x in seq(1, 10, 1)){
+    i <- x + (x-1)*74
+    dat <- train[-folds[i:(i+74)], ]
+    svm.model <- tune(e1071::svm, Class ~ ., data = dat, kernel = "radial", 
+                      ranges = list(gamma = c(0.1, 0.5, 1, 2)))
+    svm_preds <- predict(svm.model$best.model, 
+                         newdata=train[folds[i:(i+74)], ], type="response")
+    accuracy <- sum(diag(table(svm_preds, train[folds[i:(i+74)], ]$Class))) / 
+      nrow(train[folds[i:(i+74)], ])
+    svm <- c(svm, c(x, accuracy))
+    for.ttestsvm <- c(for.ttestsvm, svm_preds == 2)
+}
+
+svm_array <- array(unlist(svm), dim=c(2, 10)) %>% aperm() %>% data.frame() 
+names(svm_array) <- c("fold", "accuracy")
+svm_array
+```
+
+Here we used all the the subset of predictors.
+
+## Assessment
+
+We compute for the proportion of correctly-classified observations, rounded off up to four decimal places:
+
+```{r}
+assessment <- cbind(logistic_array, svm_array)[,-c(3,4)]
+names(assessment) <- c("Excluded Fold", 
+                       "% Correct - Logistic Regression", 
+                       "% Correct - Radial SVM")
+assessment[,2] <- assessment[,2] %>% as.character %>% as.numeric
+assessment[,c(2,3)] <- format(round(assessment[,c(2,3)], 4))
+assessment
+```
+
+#d) Perform a paired t-test to test if there is a difference between the proportion of correctly classified observations for the two methods. In the t.test function in R, do not forget to set paired=TRUE. Note the result (p-value) and interpret briefly.
+
+```{r}
+for.ttest_l <- array(unlist(for.ttest), dim=c(10, 75)) %>% aperm() %>% data.frame() 
+for.ttest_s <- array(unlist(for.ttestsvm), dim=c(10, 75)) %>% aperm() %>% data.frame() 
+t.test(for.ttest, for.ttestsvm, paired = T)
+```
+
+Here, we see that there is a difference in the between the proportion of correctly classified observations for the two methods. The p-value is small, which indicates strong evidence against the null hypothesis, so you reject the null hypothesis (there is no difference).
+
+
