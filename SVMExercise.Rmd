@@ -1,0 +1,134 @@
+---
+title: "SVM Exercise"
+author: "Rommel Bartolome"
+date: "April 3, 2019"
+output: pdf_document
+---
+
+## a.)
+
+Fit an SVM with temperature, relative humidity, light, and CO2 as predictors. Try different kernels and choose what gives the best predictive performance for the test set.
+
+We first load our data, then divide it to training and test dataset:
+```{r}
+load("occup.Rdata")
+set.seed(1)
+sample <- sample.int(n = nrow(occup), 
+                     size = floor(.75*nrow(occup)),
+                     replace = F)
+train_occup <- occup[sample, ]
+test_occup  <- occup[-sample, ]
+
+```
+
+We try to tune the best SVM, we try the radial first:
+
+```{r}
+library(e1071)
+set.seed(1)
+tune.out_radial <- tune(svm, Occupancy~., data=train_occup[,-c(5)], 
+                        kernel="radial", ranges = list(cost=c(0.1, 1, 5, 10), 
+                                                       gamma = c(0.1, 0.5, 1, 2, 3)))
+tune.out_radial$best.model
+```
+
+Here, we see that the best cost is 10 and the best gamma is 3. We use that to predict to the test set:
+
+```{r}
+table(predict = predict(tune.out_radial$best.model, test_occup), 
+      actual=test_occup$Occupancy)
+```
+
+This gives a pretty good result, with only 14 misclassified. We try to use other kernels:
+
+```{r}
+set.seed(1)
+tune.out_linear <- tune(svm, Occupancy~., data=train_occup[,-c(5)], 
+                        kernel="linear", 
+                        ranges = list(list(cost=c(0.001, 0.01, 0.1, 1, 5, 10, 100))))
+table(predict = predict(tune.out_linear$best.model, test_occup), 
+      actual=test_occup$Occupancy)
+```
+
+The linear one is worse, with a total of 29 misclassified. We also try a polynomial kernel:
+
+```{r echo=TRUE}
+set.seed(1)
+tune.out_poly <- tune(svm, Occupancy~., data=train_occup[,-c(5)], 
+                      kernel="polynomial",
+                      ranges = list(cost=c(0.001, 0.01, 0.1, 1, 5, 10, 100), 
+                                    degree = c(2, 3, 4)))
+table(predict = predict(tune.out_poly$best.model, test_occup), 
+      actual=test_occup$Occupancy)
+```
+
+Here we see that a total of 26 was misclassified. As such, we will choose **radial** as the best one, with the following specifications:
+
+```{r echo=TRUE}
+tune.out_radial$best.model
+```
+
+## b.)
+
+Now, fit an SVM with light, CO2, and humidity ratio as predictors. Try different kernels and choose what gives the best predictive performance for the test set.
+
+We first try the radial set:
+
+```{r}
+set.seed(1)
+tune.out_radial2 <- tune(svm, Occupancy~., data=train_occup[,-c(1,2)], 
+                        kernel="radial", ranges = list(cost=c(0.1, 1, 5, 10), 
+                                                       gamma = c(0.1, 0.5, 1, 2, 3)))
+table(predict = predict(tune.out_radial2$best.model, test_occup), 
+      actual=test_occup$Occupancy)
+```
+
+Here, we see that it has 20 misclassified entries. We try a linear one:
+
+```{r}
+set.seed(1)
+tune.out_linear2 <- tune(svm, Occupancy~., data=train_occup[,-c(1,2)], 
+                        kernel="linear", ranges = list(cost=c(0.001, 0.01, 0.1, 1, 5, 10, 100)))
+table(predict = predict(tune.out_linear2$best.model, test_occup), 
+      actual=test_occup$Occupancy)
+```
+
+Similarly, there are 26 misclassified entries.  We will try a polynomial one:
+
+```{r}
+set.seed(1)
+tune.out_poly2 <- tune(svm, Occupancy~., data=train_occup[,-c(1,2)], 
+                      kernel="polynomial",
+                      ranges = list(cost=c(0.001, 0.01, 0.1, 1, 5, 10, 100), 
+                                    degree = c(2, 3, 4)))
+table(predict = predict(tune.out_poly2$best.model, test_occup), 
+      actual=test_occup$Occupancy)
+```
+
+By far, this is the worst, with 31 misclassified entries. Here, we see that **radial** is still the best one. The parameters of such is as follows:
+
+```{r}
+tune.out_radial2
+```
+
+
+
+## c.)
+
+Compare the performance of your SVMs in (a) and (b). What was the effect of changing the way you treat temperature and relative humidity?
+
+Here are the number of misclassified entries on each:
+
+| **Model Used**                  | **Misclassified**  | 
+|---------------------------------|--------------------| 
+| No Humidity Ratio - Radial      | 14                 | 
+| No Humidity Ratio - Linear      | 29                 | 
+| No Humidity Ratio - Polynomial  | 26                 | 
+| No Temp & Humidity - Radial     | 20                 | 
+| No Temp & Humidity - Linear     | 26                 | 
+| No Temp & Humidity - Polynomial | 31                 | 
+
+I would say that since Humidity Ratio is a derived quantity from temperature and relative humidity, we can say that we should be able to have similar results, which is the case here (low error rate). However, since Temparature and Humidity are still separated in `a)`, we would expect that it would be better overall, which is also the case here.
+
+All in all, the SVM using the radial kernel with a separate temperature and relative humidity factor has the lowest error.
+
